@@ -63,6 +63,13 @@
   - Frontend: **alerts banner** (recent 3), **alerts list** (full history), **weight editor** (sliders per factor), **preset buttons** (balanced/conservative/aggressive/institutional), **WebSocket live push** (auto-reconnect, 60s fallback refresh)
   - **60 tests passing** (added `tests/test_features.py` — assets, alerts, weights)
   - **ruff: all clean** · **mypy: no issues** (all 8 modules)
+- **v0.3.1 — Charts, playback, notifications**:
+  - **TradingView Lightweight Charts** (v4.2.0 via CDN): candlestick + volume histogram, 1H/4H/1D timeframe switcher, live Binance klines (200 candles), per-asset symbol label, crosshair + zoom
+  - **Historical playback**: `GET /api/v1/history/dates` (available dates), `GET /api/v1/history/{date}?asset=` (full snapshot for date); UI time-machine slider with ▶ Play animation (800ms/tick), LIVE button to return; hero + status bar reflect playback state
+  - **Alert persistence**: `alerts` table in SQLite (`save_alerts`, `get_alerts`); all fired alerts stored on evaluate; `GET /api/v1/alerts/history?asset=&limit=`; frontend reads from SQLite first, falls back to in-memory
+  - **Browser notifications**: `Notification.requestPermission()` on load; toast slide-in animation (bull/bear/info variants); WebSocket alerts → toast + native notification with tag dedup; 8s auto-dismiss
+  - **64 tests passing** (added history dates, history 404, alerts history tests)
+  - **ruff: all clean** · **mypy: no issues** (all 8 modules)
 
 ## Bugs fixed along the way
 

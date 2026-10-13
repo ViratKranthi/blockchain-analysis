@@ -1,8 +1,6 @@
 """Tests for alerts engine, weights, and multi-asset support."""
 from __future__ import annotations
 
-import pytest
-
 from app.alerts import (
     DEFAULT_RULES,
     AlertRule,
@@ -11,8 +9,7 @@ from app.alerts import (
     evaluate_rule,
 )
 from app.assets import ASSETS, asset_keys, get_asset
-from app.weights import PRESETS, apply_weights, load_weights, save_weights
-
+from app.weights import PRESETS, apply_weights
 
 # ── assets ────────────────────────────────────────────────────────────────────
 

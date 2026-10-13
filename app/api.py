@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import structlog
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -64,6 +64,8 @@ async def _get_snapshot(asset: str = DEFAULT_ASSET, force: bool = False) -> dict
         with contextlib.suppress(Exception):
             fired = alerts_mod.evaluate_all(snap, _prev_snap.get(asset))
             _last_alerts[asset] = fired
+            if fired:
+                await db.save_alerts(fired)
             if fired and settings.discord_webhook_url:
                 asyncio.create_task(
                     alerts_mod.send_discord(fired, settings.discord_webhook_url)
@@ -98,7 +100,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="BTC Smart-Money API",
-    version="0.3.0",
+    version="0.3.1",
     description="Multi-asset smart-money dashboard — BTC/ETH/SOL, 15 cohorts, alerts.",
     lifespan=lifespan,
 )
@@ -271,6 +273,37 @@ async def history(days: int = Query(90, ge=1, le=730)) -> HistoryResponse:
         for r in rows
     ]
     return HistoryResponse(days=days, rows=mapped)  # type: ignore[arg-type]
+
+
+@app.get("/api/v1/history/dates")
+async def history_dates(asset: str = DEFAULT_ASSET, limit: int = 90) -> dict[str, Any]:
+    """Available dates for historical playback."""
+    dates = await db.get_available_dates(asset, limit)
+    return {"asset": asset.upper(), "dates": dates}
+
+
+@app.get("/api/v1/history/{date_str}")
+async def history_snapshot(
+    date_str: str,
+    asset: str = Query(DEFAULT_ASSET, description="BTC | ETH | SOL"),
+) -> Any:
+    """Full snapshot for a given date (historical playback)."""
+    snap = await db.get_snapshot_by_date(date_str, asset)
+    if snap is None:
+        raise HTTPException(status_code=404, detail=f"No snapshot for {date_str} ({asset})")
+    return JSONResponse(content=snap)
+
+
+# ── alerts (from SQLite) ──────────────────────────────────────────────────────
+
+@app.get("/api/v1/alerts/history")
+async def alerts_history(
+    asset: str = DEFAULT_ASSET,
+    limit: int = Query(50, ge=1, le=500),
+) -> dict[str, Any]:
+    """Persisted alert history from SQLite."""
+    rows = await db.get_alerts(asset, limit)
+    return {"asset": asset.upper(), "count": len(rows), "alerts": rows}
 
 
 @app.post("/api/v1/refresh")

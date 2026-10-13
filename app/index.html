@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Smart Money Terminal — BTC</title>
+<title>Smart Money Terminal — BTC/ETH/SOL</title>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <style>
 /* ═══════════════════════════════════════════════
    DESIGN SYSTEM — "Trading Terminal"
@@ -407,6 +408,59 @@ tr:hover td { background: rgba(88,166,255,.03); color: var(--text); }
 }
 .playback-bar input[type="range"] { flex: 1; accent-color: var(--gold); }
 .playback-bar .pb-date { font-family: var(--mono); font-size: 12px; color: var(--gold); min-width: 100px; }
+.playback-bar .pb-btn {
+  padding: 4px 10px; font-size: 11px; border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm); background: transparent; color: var(--text-2);
+  cursor: pointer; transition: all .15s;
+}
+.playback-bar .pb-btn:hover { background: var(--gold); color: var(--bg); }
+.playback-bar .pb-btn.active { background: var(--gold); color: var(--bg); }
+
+/* ═══ TRADINGVIEW CHART ═══ */
+.tv-chart-wrap {
+  position: relative; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); overflow: hidden;
+}
+.tv-chart-wrap #tvChart { width: 100%; height: 380px; }
+.tv-toolbar {
+  display: flex; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+.tv-tf-btn {
+  padding: 3px 10px; font-size: 11px; font-weight: 600; font-family: var(--mono);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: transparent; color: var(--text-3); cursor: pointer; transition: all .15s;
+}
+.tv-tf-btn:hover { color: var(--text); border-color: var(--border-strong); }
+.tv-tf-btn.active { background: var(--gold); color: var(--bg); border-color: var(--gold); }
+
+/* ═══ TOAST NOTIFICATIONS ═══ */
+.toast-container {
+  position: fixed; top: 16px; right: 16px; z-index: 9999;
+  display: flex; flex-direction: column; gap: 8px; max-width: 380px;
+}
+.toast {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 16px; border-radius: var(--r-md); border: 1px solid;
+  background: var(--surface); box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  animation: toastIn .25s ease-out; font-size: 13px;
+}
+.toast.bull { border-color: rgba(63,185,80,.4); background: rgba(63,185,80,.08); }
+.toast.bear { border-color: rgba(248,81,73,.4); background: rgba(248,81,73,.08); }
+.toast.info { border-color: rgba(201,165,76,.4); background: rgba(201,165,76,.08); }
+.toast .t-icon { font-size: 16px; margin-top: 1px; }
+.toast .t-body { flex: 1; }
+.toast .t-title { font-weight: 700; font-size: 12px; margin-bottom: 2px; }
+.toast .t-msg { color: var(--text-2); font-size: 12px; line-height: 1.4; }
+.toast .t-close {
+  background: none; border: none; color: var(--text-3); cursor: pointer;
+  font-size: 16px; padding: 0 2px;
+}
+.toast .t-close:hover { color: var(--text); }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
 
 /* ═══ BIAS FACTORS ═══ */
 .factor {
@@ -631,7 +685,30 @@ footer code {
   <!-- alerts banner -->
   <div id="alertsBanner" style="display:none;margin-bottom:12px"></div>
 
+  <!-- toast notifications -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- historical playback -->
+  <div class="playback-bar" id="playbackBar" style="display:none">
+    <button class="pb-btn" id="pbLive" onclick="setPlayback(null)">LIVE</button>
+    <span class="pb-date" id="pbDate">—</span>
+    <input type="range" id="pbSlider" min="0" max="0" value="0" oninput="onPlaybackSlide(this.value)">
+    <button class="pb-btn" id="pbPlay" onclick="togglePlayback()">▶ Play</button>
+  </div>
+
   <div class="hero-strip" id="heroStrip"></div>
+
+  <!-- TradingView candlestick chart -->
+  <div class="tv-chart-wrap" style="margin-top:14px">
+    <div class="tv-toolbar">
+      <button class="tv-tf-btn" data-tf="1h" onclick="setTimeframe('1h')">1H</button>
+      <button class="tv-tf-btn active" data-tf="4h" onclick="setTimeframe('4h')">4H</button>
+      <button class="tv-tf-btn" data-tf="1d" onclick="setTimeframe('1d')">1D</button>
+      <span style="flex:1"></span>
+      <span id="tvSymbol" style="font-family:var(--mono);font-size:11px;color:var(--text-3);align-self:center"></span>
+    </div>
+    <div id="tvChart"></div>
+  </div>
 
   <div class="meter" id="controlMeter">
     <div class="meter-head">
@@ -1739,15 +1816,29 @@ document.querySelectorAll(".asset-btn").forEach(btn => {
     currentAsset = btn.dataset.asset;
     document.documentElement.style.setProperty("--gold", getComputedStyle(btn).backgroundColor || "#c9a54c");
     loadToday();
+    loadTVData();
+    loadPlaybackDates();
+    loadAlerts();
   });
 });
 
 /* ═══ ALERTS ═══ */
 async function loadAlerts() {
   try {
-    const r = await fetch(`/api/v1/alerts?asset=${currentAsset}`);
-    const data = await r.json();
-    const list = data.alerts || [];
+    // Try SQLite history first, fall back to in-memory
+    let list = [];
+    try {
+      const hr = await fetch(`/api/v1/alerts/history?asset=${currentAsset}&limit=50`);
+      if (hr.ok) {
+        const hd = await hr.json();
+        list = hd.alerts || [];
+      }
+    } catch (e) {}
+    if (!list.length) {
+      const r = await fetch(`/api/v1/alerts?asset=${currentAsset}`);
+      const data = await r.json();
+      list = data.alerts || [];
+    }
     lastAlerts = list;
     if (!list.length) {
       $("#alertsList").innerHTML = '<span style="color:var(--text-3)">No alerts yet — they fire automatically when rules trigger.</span>';
@@ -1853,6 +1944,209 @@ document.querySelectorAll(".preset-btn[data-preset]").forEach(btn => {
   });
 });
 
+/* ═══ TRADINGVIEW CHART ═══ */
+let tvChart = null, tvCandle = null, tvVolume = null, tvTimeframe = "4h";
+let tvMarkers = [];
+
+async function initTVChart() {
+  if (typeof LightweightCharts === "undefined") return;
+  const el = document.getElementById("tvChart");
+  if (!el) return;
+
+  tvChart = LightweightCharts.createChart(el, {
+    layout: { background: { color: "transparent" }, textColor: "#8b8fa3" },
+    grid: {
+      vertLines: { color: "rgba(255,255,255,.04)" },
+      horzLines: { color: "rgba(255,255,255,.04)" },
+    },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: "rgba(255,255,255,.08)" },
+    timeScale: { borderColor: "rgba(255,255,255,.08)", timeVisible: true },
+    autoSize: true,
+  });
+
+  tvCandle = tvChart.addCandlestickSeries({
+    upColor: "#3fb950", downColor: "#f85149",
+    borderVisible: false, wickUpColor: "#3fb950", wickDownColor: "#f85149",
+  });
+
+  tvVolume = tvChart.addHistogramSeries({
+    priceFormat: { type: "volume" },
+    priceScaleId: "vol",
+  });
+  tvChart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+
+  tvMarkers = [];
+  loadTVData();
+}
+
+async function loadTVData() {
+  if (!tvChart) return;
+  const sym = `${currentAsset}USDT`;
+  try {
+    const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${tvTimeframe}&limit=200`);
+    const raw = await r.json();
+    if (!Array.isArray(raw)) return;
+
+    const candles = raw.map(k => ({
+      time: Math.floor(k[0] / 1000),
+      open: +k[1], high: +k[2], low: +k[3], close: +k[4],
+    }));
+    const vols = raw.map(k => ({
+      time: Math.floor(k[0] / 1000),
+      value: +k[5],
+      color: +k[4] >= +k[1] ? "rgba(63,185,80,.25)" : "rgba(248,81,73,.25)",
+    }));
+
+    tvCandle.setData(candles);
+    tvVolume.setData(vols);
+    tvChart.timeScale().fitContent();
+    document.getElementById("tvSymbol").textContent = `${currentAsset}/USDT · ${tvTimeframe.toUpperCase()} · Binance`;
+  } catch (e) {
+    document.getElementById("tvSymbol").textContent = `${currentAsset}/USDT · chart offline`;
+  }
+}
+
+function setTimeframe(tf) {
+  tvTimeframe = tf;
+  document.querySelectorAll(".tv-tf-btn").forEach(b => {
+    b.classList.toggle("active", b.dataset.tf === tf);
+  });
+  loadTVData();
+}
+
+/* ═══ HISTORICAL PLAYBACK ═══ */
+let playbackDates = [];
+let playbackIdx = -1;
+let playbackTimer = null;
+
+async function loadPlaybackDates() {
+  if (location.protocol === "file:") return;
+  try {
+    const r = await fetch(`/api/v1/history/dates?asset=${currentAsset}`);
+    const d = await r.json();
+    playbackDates = d.dates || [];
+    if (playbackDates.length > 1) {
+      const bar = document.getElementById("playbackBar");
+      bar.style.display = "flex";
+      const slider = document.getElementById("pbSlider");
+      slider.max = String(playbackDates.length - 1);
+      slider.value = String(playbackDates.length - 1);
+      document.getElementById("pbDate").textContent = playbackDates[playbackDates.length - 1];
+    }
+  } catch (e) {}
+}
+
+async function onPlaybackSlide(idx) {
+  if (!playbackDates.length) return;
+  playbackIdx = +idx;
+  const date = playbackDates[playbackIdx];
+  document.getElementById("pbDate").textContent = date;
+  document.getElementById("pbLive").classList.toggle("active", playbackIdx === playbackDates.length - 1);
+
+  if (playbackIdx === playbackDates.length - 1) { setPlayback(null); return; }
+  try {
+    const r = await fetch(`/api/v1/history/${date}?asset=${currentAsset}`);
+    if (!r.ok) return;
+    const snap = await r.json();
+    renderLive(snap);
+    document.getElementById("todayStatus").textContent =
+      `Playback · ${date} · ${snap.generated_at || ""}`;
+    document.getElementById("todayStatus").className = "off";
+    document.getElementById("todayTag").textContent = "HISTORY";
+    document.getElementById("todayTag").className = "tag neut";
+  } catch (e) {}
+}
+
+function setPlayback(idx) {
+  if (idx === null) {
+    playbackIdx = playbackDates.length - 1;
+    document.getElementById("pbSlider").value = String(playbackIdx);
+    document.getElementById("pbDate").textContent = playbackDates[playbackIdx] || "—";
+    document.getElementById("pbLive").classList.add("active");
+    loadToday();
+  }
+}
+
+function togglePlayback() {
+  const btn = document.getElementById("pbPlay");
+  if (playbackTimer) {
+    clearInterval(playbackTimer);
+    playbackTimer = null;
+    btn.textContent = "▶ Play";
+    btn.classList.remove("active");
+    return;
+  }
+  btn.textContent = "⏸ Pause";
+  btn.classList.add("active");
+  playbackTimer = setInterval(() => {
+    if (playbackIdx <= 0) {
+      clearInterval(playbackTimer);
+      playbackTimer = null;
+      btn.textContent = "▶ Play";
+      btn.classList.remove("active");
+      return;
+    }
+    playbackIdx--;
+    document.getElementById("pbSlider").value = String(playbackIdx);
+    onPlaybackSlide(playbackIdx);
+  }, 800);
+}
+
+/* ═══ BROWSER NOTIFICATIONS ═══ */
+let notifPermission = "default";
+
+function requestNotifPermission() {
+  if (typeof Notification === "undefined") return;
+  if (Notification.permission === "granted") {
+    notifPermission = "granted";
+    return;
+  }
+  if (Notification.permission === "default") {
+    Notification.requestPermission().then(p => { notifPermission = p; });
+  } else {
+    notifPermission = Notification.permission;
+  }
+}
+
+function showToast(alert) {
+  const c = document.getElementById("toastContainer");
+  const div = document.createElement("div");
+  div.className = `toast ${alert.severity === "bull" ? "bull" : alert.severity === "bear" ? "bear" : "info"}`;
+  const icon = alert.severity === "bull" ? "🟢" : alert.severity === "bear" ? "🔴" : "🟡";
+  div.innerHTML = `
+    <span class="t-icon">${icon}</span>
+    <div class="t-body">
+      <div class="t-title">${esc(alert.rule_type || "ALERT")}</div>
+      <div class="t-msg">${esc(alert.message || "")}</div>
+    </div>
+    <button class="t-close" onclick="this.parentElement.remove()">×</button>`;
+  c.appendChild(div);
+  setTimeout(() => div.remove(), 8000);
+
+  // browser notification
+  if (notifPermission === "granted" && typeof Notification !== "undefined") {
+    try {
+      new Notification(`Smart Money · ${alert.rule_type || "Alert"}`, {
+        body: alert.message || "",
+        icon: "/favicon.ico",
+        tag: alert.rule_id || "sm-alert",
+      });
+    } catch (e) {}
+  }
+}
+
+function processAlerts(alerts) {
+  if (!Array.isArray(alerts)) return;
+  for (const a of alerts) {
+    const key = `${a.rule_id}|${a.ts}`;
+    if (!lastAlerts.find(x => `${x.rule_id}|${x.ts}` === key)) {
+      showToast(a);
+    }
+  }
+  lastAlerts = alerts;
+}
+
 /* ═══ WEBSOCKET (live push) ═══ */
 function connectWS() {
   if (location.protocol === "file:") return;
@@ -1863,11 +2157,11 @@ function connectWS() {
       try {
         const data = JSON.parse(ev.data);
         if (data._alerts) {
-          lastAlerts = data._alerts;
+          processAlerts(data._alerts);
           loadAlerts();
         } else if (data.price) {
-          // full snapshot push — trigger re-render via cached fetch
           loadToday();
+          loadTVData();
         }
       } catch (e) {}
     };
@@ -1879,6 +2173,9 @@ function connectWS() {
 /* auto-refresh fallback (if no WebSocket) */
 loadToday();
 setTimeout(connectWS, 1000);
+setTimeout(initTVChart, 500);
+setTimeout(loadPlaybackDates, 1500);
+requestNotifPermission();
 setInterval(loadToday, 60000);
 </script>
 </body>

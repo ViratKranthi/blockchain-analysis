@@ -153,7 +153,7 @@ class Snapshot(BaseModel):
 
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"] = "ok"
-    version: str = "0.2.0"
+    version: str = "0.3.1"
     snapshot_age_s: float | None = None
     errors: int = 0
 

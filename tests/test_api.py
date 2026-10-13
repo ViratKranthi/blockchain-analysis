@@ -19,7 +19,7 @@ class TestHealth:
         assert r.status_code == 200
         data = r.json()
         assert data["status"] in ("ok", "degraded")
-        assert data["version"] == "0.2.0"
+        assert data["version"] == "0.3.1"
 
 
 class TestToday:
@@ -105,6 +105,34 @@ class TestHistory:
     def test_history_rejects_bad_days(self, client):
         r = client.get("/api/v1/history?days=0")
         assert r.status_code == 422  # pydantic validation error
+
+    def test_history_dates_returns_list(self, client):
+        r = client.get("/api/v1/history/dates")
+        assert r.status_code == 200
+        data = r.json()
+        assert "asset" in data
+        assert "dates" in data
+        assert isinstance(data["dates"], list)
+
+    def test_history_snapshot_404_for_missing(self, client):
+        r = client.get("/api/v1/history/2000-01-01")
+        assert r.status_code == 404
+
+
+class TestAlertsHistory:
+    def test_alerts_history_returns_list(self, client):
+        r = client.get("/api/v1/alerts/history")
+        assert r.status_code == 200
+        data = r.json()
+        assert "asset" in data
+        assert "count" in data
+        assert "alerts" in data
+        assert isinstance(data["alerts"], list)
+
+    def test_alerts_history_limit(self, client):
+        r = client.get("/api/v1/alerts/history?limit=5")
+        assert r.status_code == 200
+        assert r.json()["count"] <= 5
 
 
 class TestIndex:
