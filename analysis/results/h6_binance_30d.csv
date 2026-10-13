@@ -1,0 +1,12 @@
+metric,count,mean,min,max
+takerlongshortRatio_buySellRatio,30.0,0.9838100000000001,0.871,1.1213
+takerlongshortRatio_buyVol,30.0,68432.78773333335,18200.083,152333.551
+takerlongshortRatio_sellVol,30.0,69734.17383333333,17812.428,138371.972
+openInterestHist_sumOpenInterest,30.0,99017.11410000002,92378.482,109189.231
+openInterestHist_sumOpenInterestValue,30.0,8173333507.851615,7599452309.9696,9454075224.884014
+globalLongShortAccountRatio_longAccount,30.0,0.5565100000000001,0.4716,0.6515
+globalLongShortAccountRatio_shortAccount,30.0,0.44349,0.3485,0.5284
+globalLongShortAccountRatio_longShortRatio,30.0,1.2847466666666667,0.8925,1.8694
+topLongShortPositionRatio_longAccount,30.0,0.6567933333333333,0.6065,0.7058
+topLongShortPositionRatio_shortAccount,30.0,0.3432066666666667,0.2942,0.3935
+topLongShortPositionRatio_longShortRatio,30.0,1.9334799999999999,1.5415,2.3995
